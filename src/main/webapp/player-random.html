@@ -1,0 +1,117 @@
+<html>
+<head>
+    <title>Blinde</title>
+    <link rel="stylesheet" type="text/css" href="css/battlecamp.css">
+    <script src="js/jquery-2.1.1.js"></script>
+    <script src="js/sockjs-0.3.4.min.js"></script>
+    <script src="js/stomp.js"></script>
+    <script>
+    var playerId;
+    var color = 'pink';
+    var stompClient = null;
+
+    $(document).ready(function(){
+        //console.log('ready');
+        playerId = 'blinde_' + Math.floor((Math.random() * 100));
+        $("#playerId").html(playerId);
+        connect();
+        $.getJSON( "/games", function( data ) {
+          $.each( data, function(index,  game) {
+            addGame(game);
+          });
+        });
+    });
+
+    function connect() {
+        var socket = new SockJS($('#url').val());
+//        var socket = new SockJS('/updates');
+        //console.log('socket: ' + socket);
+        stompClient = Stomp.over(socket);
+        //console.log('stompClient: ' + stompClient);
+        stompClient.debug = function(str) {
+            //$("#debug").prepend($("<div>").html(str));
+          };
+        stompClient.connect({}, function(frame) {
+            //console.log('Connected: ' + frame);
+            stompClient.subscribe('/topic/updates', function(tile){
+                ////console.log('update: ' + tile);
+                //action();
+            });
+            stompClient.subscribe('/topic/beurt', function(data){
+                var beurt = JSON.parse(data.body);
+                if (beurt.player.id == playerId) {
+                    action(beurt);
+                } else {
+                    //console.log('niet mijn beurt: ' + playerId + ' en ' + beurt.playerId);
+                }
+            });
+            stompClient.subscribe('/topic/games', function(data){
+                var game = JSON.parse(data.body);
+                addGame(game);
+            });
+        });
+    }
+
+    function disconnect() {
+        stompClient.disconnect();
+    }
+
+    function addGame(game) {
+        if (!$('#' + game.id).length) {
+             var gameDiv = $("<div>", {id: game.id}).html(game.id);
+             $( "#games" ).append(gameDiv);
+            var playerIds = game.players.map(function(player){
+                return player.id;
+            });
+            if (!(playerIds.indexOf(playerId) > -1)) {
+                joinGame(game.id, 'PINGUIN');
+            }
+            gameDiv.append($("<button>", { onclick:"joinGame('" + game.id + "', 'PINGUIN')"} ).html('join als pinguin'));
+            gameDiv.append($("<button>", { onclick:"joinGame('" + game.id + "', 'ZEELEEUW')"} ).html('join als knuppelaar'));
+        }
+    }
+
+    function joinGame(gameId, playerType) {
+        //console.log(' player ' + playerId + ' joining game');
+        $.post("/join", {gameId:gameId, playerId:playerId, playerColor: color, playerType: playerType});
+    }
+
+    function newGame(playerType) {
+        //console.log('starting new game player ' + playerId);
+        $.post("/new", {playerId:playerId, playerColor: color, playerType: playerType});
+    }
+
+    function action(beurt) {
+        var dir;
+        if (beurt.player.type === 'PINGUIN') {
+            var dirs = ["N", "S", "E", "E", "E","W"]
+            var random = Math.floor((Math.random() * 6));
+            dir = dirs[random];
+        }
+        if (beurt.player.type === 'ZEELEEUW') {
+            var dirs = ["N", "S", "E", "W"]
+            var random = Math.floor((Math.random() * 4));
+            dir = dirs[random];
+        }
+        //console.log('going to ' + dir);
+        $.post("/action", {playerId: playerId, gameId:beurt.gameId, direction:dir } );
+    }
+
+    </script>
+</head>
+
+<body>
+<div>
+    <div id="playerId">...</div>
+    <input type="text" id="url" value="http://localhost:8080/updates" style="width: 20em"/><button id="conectButton" onclick="connect()">Connect</button>
+    <button id="disconnectButton" onclick="disconnect()">Disconnect</button>
+
+    <button id="playPinguinButton" onclick="newGame('PINGUIN')">New game as pinguin</button>
+    <button id="playKnuppelaarButton" onclick="newGame('ZEELEEUW')">New game as knuppelaar</button>
+    <div id="games">
+        <h1>Games</h1>
+    </div>
+    <div id="debug"/>
+</div>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Darter</title>
+
+<script async type="application/dart" src="pinguin.dart"></script>
+<script async src="packages/browser/dart.js"></script>
+
+<link rel="stylesheet" href="pinguin.css">
+</head>
+<body>
+    <div id="sample_container_id">
+    <input type="text" id ="server" value="http://pinguins:8080"/>
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn" disabled="disabled">Disconnect</button>
+    <input type="checkbox" id="manual">Manual
+    <br/>
+    Naam:<input type="text" id="naam" value="darter"/>
+    <select id='type'>
+      <option value="PINGUIN">PINGUIN</option>
+      <option value="ZEELEEUW">ZEELEEUW</option>
+    </select>
+    Kleur:<input type="color" id="kleur" value="#ff0000">
+    <br/>
+    <br/>
+    <table class="navigatieTable" border="1">
+      <tr>
+        <td>
+        </td>
+        <td>
+          <button id="N" class="navigatieButton">UP</button>
+        </td>
+        <td>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <button id="W" class="navigatieButton">LEFT</button>
+        </td>
+        <td>
+          <button id="stop" class="navigatieButton">STOP</button>
+        </td>
+        <td>
+          <button id="E" class="navigatieButton">RIGHT</button>
+        </td>
+      </tr>
+      <tr>
+        <td></td>
+        <td>
+        <button id="S" class="navigatieButton">DOWN</button>
+        </td>
+        <td></td>
+      </tr>
+    </table>
+    
+    <!--
+    
+    
+    <div>
+      <table id="games" border="1">
+        <tr>
+          <th>game id</th>
+          <th>creation</th>
+          <th>started</th>
+          <th>stopped</th>
+        </tr>
+      </table>
+    </div>
+  -->
+  </div>
+
+</body>
+</html>

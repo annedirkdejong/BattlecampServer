@@ -1,0 +1,225 @@
+<html>
+<head>
+    <title>Bill_Gates</title>
+    <link rel="stylesheet" type="text/css" href="css/battlecamp.css">
+    <script src="js/jquery-2.1.1.js"></script>
+    <script src="js/sockjs-0.3.4.min.js"></script>
+    <script src="js/stomp.js"></script>
+    <script>
+    var playerId;
+    var color = "lime";
+    var stompClient = null;
+
+        var UP      = "N";
+        var RIGHT   = "E";
+        var DOWN    = "S";
+        var LEFT    = "W";
+
+        var gameDataMap = {};
+    $(document).ready(function(){
+        console.log('ready');
+        playerId = 'Bill_Gates_' + Math.floor((Math.random() * 100));
+//        playerId = 'Bill_Gates_';
+        $("#playerId").html(playerId);
+        connect();
+        $.getJSON( "/games", function( data ) {
+          $.each( data, function(index,  game) {
+            addGame(game);
+          });
+        });
+    });
+
+    function connect() {
+        var socket = new SockJS($('#url').val());
+//        var socket = new SockJS('/updates');
+        console.log('socket: ' + socket);
+        stompClient = Stomp.over(socket);
+        console.log('stompClient: ' + stompClient);
+        stompClient.debug = function(str) {
+            //$("#debug").prepend($("<div>").html(str));
+          };
+        stompClient.connect({}, function(frame) {
+            console.log('Connected: ' + frame);
+            stompClient.subscribe('/topic/updates', function(tile){
+                //console.log('update: ' + tile);
+                //action();
+            });
+            stompClient.subscribe('/topic/beurt', function(data){
+                var beurt = JSON.parse(data.body);
+                console.log("beurt.player.id: " + beurt.player.id);
+                if (beurt.player.id == playerId) {
+                    action(beurt);
+                } else {
+                    console.log('niet mijn beurt: ' + playerId + ' en ' + beurt.player.id);
+                }
+            });
+            stompClient.subscribe('/topic/games', function(data){
+                var game = JSON.parse(data.body);
+                addGame(game);
+                var playerIds = game.players.map(function(player){
+                    return player.id;
+                });
+                if (!(playerIds.indexOf(playerId) > -1)) {
+                    joinGame(game.id, 'ZEELEEUW');
+                }
+            });
+        });
+    }
+
+    function disconnect() {
+        stompClient.disconnect();
+    }
+
+    function addGame(game) {
+        if (!$('#' + game.id).length) {
+             var gameDiv = $("<div>", {id: game.id}).html(game.id);
+             $( "#games" ).append(gameDiv);
+            gameDiv.append($("<button>", { onclick:"joinGame('" + game.id + "', 'PINGUIN')"} ).html('join als pinguin'));
+            gameDiv.append($("<button>", { onclick:"joinGame('" + game.id + "', 'ZEELEEUW')"} ).html('join als knuppelaar'));
+        }
+    }
+
+    function joinGame(gameId, playerType) {
+        console.log(' player ' + playerId + ' joining game');
+        $.post("/join", {gameId:gameId, playerId:playerId, playerColor: color, playerType: playerType});
+    }
+
+    function newGame(playerType) {
+        console.log('starting new game player ' + playerId);
+        $.post("/new", {playerId:playerId, playerColor: color, playerType: playerType});
+    }
+
+    function action(beurt) {
+    var gameId = beurt.gameId;
+     $.getJSON( "/game", {id: gameId}, function( gameData ) {
+         var gameState = gameDataMap[gameId];
+
+         if (!gameState) {
+              gameState = initGameState(gameId);
+              //identifyExits(gameId, gameData.board);
+         }
+         identifyPlayers(gameId, gameData.players);
+
+         player=gameData.players[playerId]
+         var huntedPray = getClosestLivingPray(gameState, gameState.self.x,  gameState.self.y);
+
+         console.log("HUNTING: " + huntedPray.id);
+         //console.log("huntedPray.y: " + huntedPray.y);
+         //console.log("gameState.self.y : " + gameState.self.y );
+         var possibleMoves = getPossibleMoves(gameData,gameState.self.x,gameState.self.y);
+         //console.log(possibleMoves);
+         var dir = UP;
+         if (huntedPray.y > gameState.self.y ) {
+           dir = DOWN;
+         }
+         //console.log("dir:" + dir);
+         //console.log($.inArray(dir, possibleMoves));
+         //console.log(!$.inArray(dir, possibleMoves));
+         if ($.inArray(dir, possibleMoves) == -1) {
+            if ($.inArray(RIGHT, possibleMoves) != -1) {
+              dir = RIGHT;
+            }else {
+              dir = LEFT;
+            }
+         }
+        //console.log("dir:" + dir);
+        //console.log('going to ' + dir);
+        $.post("/action", {playerId: playerId, gameId:beurt.gameId, direction:dir } );
+        });
+    }
+
+    function initGameState(gameId) {
+            console.log("initGameState");
+            var gameState = {};
+
+            gameState.lastMove = "";
+
+            gameState.self;
+            gameState.closest;
+            gameState.route = {};
+            gameState.prays = [];
+            gameState.hunters = [];
+            gameState.exits = [];
+
+            gameDataMap[gameId] = gameState;
+
+            return gameState;
+        }
+        function identifyPlayers(gameId, players) {
+            console.log("identifyPlayers");
+            var gameState = gameDataMap[gameId];
+            $.each(players, function(index, player) {
+                if(player.id == playerId) {
+                    console.log("me");
+                    gameState.self = player;
+                } else if (player.type == "PINGUIN") {
+                   //console.log("isDead?" + player.dead);
+                   //console.log("pinquin");
+                   gameState.prays.push(player);
+                } else if (player.type == "ZEELEEUW") {
+                    //console.log("knuppelaar");
+                    gameState.hunters.push(player);
+                }
+            });
+        }
+
+        function getPossibleMoves(gameData, fromX, fromY) {
+            var possibleMoves = new Array ();
+            if (getTile(gameData.board, fromX, fromY-1).type == 'IJS' ) {
+              possibleMoves.push(UP);
+              //console.log("Possible UP");
+            }
+            if (getTile(gameData.board, fromX, fromY+1).type == 'IJS' ) {
+              possibleMoves.push(DOWN);
+              //console.log("Possible DOWN");
+            }
+            if (getTile(gameData.board, fromX-1, fromY).type == 'IJS' ) {
+              possibleMoves.push(LEFT);
+              //console.log("Possible LEFT");
+            }
+            if (getTile(gameData.board, fromX+1, fromY).type == 'IJS' ) {
+              possibleMoves.push(RIGHT);
+              //console.log("Possible RIGHT");
+            }
+            return possibleMoves;
+
+        }
+        function getTile(board, x, y) {
+            return board.tiles[x*board.rows + y];
+        }
+         function getClosestLivingPray(gameState, fromX, fromY) {
+         console.log("getClosestPray");
+             var shortestRange = 99;
+             var huntedPray=null;
+             //console.log(gameState.prays);
+             $.each(gameState.prays, function(index, pray) {
+                console.log(pray.id + " is dead:" + pray.dead)
+                if(! pray.dead)  {
+                var diffX = fromX - pray.x;
+                var diffY = fromY - pray.y;
+                var range = Math.sqrt(diffX*diffX + diffY*diffY);
+                    if(shortestRange > range) {
+                        shortestRange = range;
+                        huntedPray = pray;
+                    }
+                }
+             });
+            console.log(huntedPray.id);
+            return huntedPray;
+        }
+    </script>
+</head>
+
+<body>
+<div>
+    <div id="playerId">...</div>
+    <input type="text" id="url" value="http://localhost:8080/updates" style="width: 20em"/><button id="conectButton" onclick="connect()">Connect</button>
+    <button id="disconnectButton" onclick="disconnect()">Disconnect</button>
+    <button id="playKnuppelaarButton" onclick="newGame('ZEELEEUW')">New game as Jager</button>
+    <div id="games">
+        <h1>Games</h1>
+    </div>
+    <div id="debug"/>
+</div>
+</body>
+</html>

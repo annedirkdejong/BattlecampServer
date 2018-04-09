@@ -1,0 +1,339 @@
+<html>
+<head>
+    <title>Marco</title>
+    <link rel="stylesheet" type="text/css" href="css/battlecamp.css">
+    <script src="js/jquery-2.1.1.js"></script>
+    <script src="js/sockjs-0.3.4.min.js"></script>
+    <script src="js/stomp.js"></script>
+    <script type="text/javascript">
+        var playerId;
+        var color = 'darkgreen';
+        var stompClient = null;
+
+        var SCAN_DISTANCE = 3;
+        var TOTAL_SCANNED_DISTANCE = (2*SCAN_DISTANCE + 1);
+        var UP      = "N";
+        var RIGHT   = "E";
+        var DOWN    = "S";
+        var LEFT    = "W";
+
+        var gameDataMap = {}
+
+        $(document).ready(function() {
+            //console.log('ready');
+            playerId = 'marco_' + Math.floor((Math.random() * 100));
+            $("#playerId").html(playerId);
+            connect();
+            $.getJSON( "/games", function( data ) {
+              $.each( data, function(index,  game) {
+                addGame(game);
+              });
+            });
+        });
+
+        function connect() {
+            var socket = new SockJS('/updates');
+            //console.log('socket: ' + socket);
+            stompClient = Stomp.over(socket);
+            //console.log('stompClient: ' + stompClient);
+            stompClient.connect({}, function(frame) {
+                //console.log('Connected: ' + frame);
+                stompClient.subscribe('/topic/updates', function(tile){
+                    ////console.log('update: ' + tile);
+                    //action();
+                });
+                stompClient.subscribe('/topic/beurt', function(data){
+                    var beurt = JSON.parse(data.body);
+                    if (beurt.player.id == playerId) {
+                        action(beurt);
+                    } else {
+                        //console.log('niet mijn beurt: ' + playerId + ' en ' + beurt.playerId);
+                    }
+                });
+                stompClient.subscribe('/topic/games', function(data){
+                    var game = JSON.parse(data.body);
+                    addGame(game);
+                    var playerIds = game.players.map(function(player){
+                        return player.id;
+                    });
+                    if (!(playerIds.indexOf(playerId) > -1)) {
+                        joinGame(game.id, 'PINGUIN');
+                    }
+                });
+            });
+        }
+
+        function disconnect() {
+            stompClient.disconnect();
+        }
+
+        function addGame(game) {
+            if (!$('#' + game.id).length) {
+                 var gameDiv = $("<div>", {id: game.id}).html(game.id);
+                 $( "#games" ).append(gameDiv);
+                gameDiv.append($("<button>", { onclick:"joinGame('" + game.id + "', 'PINGUIN')"} ).html('join als pinguin'));
+            }
+        }
+
+        function joinGame(gameId, playerType) {
+            //console.log(' player ' + playerId + ' joining game');
+            $.post("/join", {gameId:gameId, playerColor: color, playerId:playerId, playerType: playerType});
+        }
+
+        function newGame(playerType) {
+            //console.log('starting new game player ' + playerId);
+            $.post("/new", {playerId:playerId, playerColor: color, playerType: playerType});
+        }
+
+        function action(beurt) {
+            var gameId = beurt.gameId;
+            $.getJSON( "/game", {id: gameId}, function( gameData ) {
+                var gameState = gameDataMap[gameId];
+                if (!gameState) {
+                    gameState = initGameState(gameId);
+                    identifyExits(gameId, gameData.board);
+                }
+                identifyPlayers(gameId, gameData.players);
+                getRoute(gameId);
+
+                var scannedArea = [];
+                for (var idxHor = -SCAN_DISTANCE; idxHor <= SCAN_DISTANCE; idxHor++) {
+                    scannedArea[idxHor + SCAN_DISTANCE] = [];
+                    for (var idxVer = -SCAN_DISTANCE; idxVer <= SCAN_DISTANCE; idxVer++) {
+                        var value = 0;
+                        var x = gameState.self.x + idxHor;
+                        var y = gameState.self.y + idxVer;
+                        if (x < 0 || x > gameData.board.columns) {
+                            value = 99;
+                        } else if (y < 0 || y > gameData.board.rows) {
+                            value = 99;
+                        } else if (!canMove(getTile(gameData.board, x, y))) {
+                            value = 99;
+                        } else {
+                            var tile = getTile(gameData.board, x, y);
+                            switch (tile.type) {
+                                case 'WATER':
+                                    value = 0;
+                                    break;
+                                case 'IJS':
+                                    value = 1;
+                                    break;
+                                case 'HUIS':
+                                    value = -99;
+                                    break;
+                            }
+
+                        }
+                        scannedArea[idxHor + SCAN_DISTANCE][idxVer + SCAN_DISTANCE] = value;
+                    }
+                }
+
+                applyPathAdjustments(gameId, scannedArea);
+
+                var dir = getMoveDirection(gameId, scannedArea);
+                $.post("/action", {playerId: playerId, gameId: beurt.gameId, direction: dir });
+            });
+        }
+
+        function initGameState(gameId) {
+            var gameState = {};
+
+            gameState.lastMove = "";
+
+            gameState.self;
+            gameState.closest;
+            gameState.route = {};
+            gameState.allies = [];
+            gameState.butchers = [];
+            gameState.exits = [];
+
+            gameDataMap[gameId] = gameState;
+
+            return gameState;
+        }
+
+        function identifyExits(gameId, board) {
+            var gameState = gameDataMap[gameId];
+            $.each(board.tiles, function(index, tile) {
+                if(tile.type == "HUIS") {
+                    gameState.exits.push(tile);
+                }
+            })
+        }
+
+        function applyPathAdjustments(gameId, scanned) {
+             //apply trajectory adjustments
+             var gameState = gameDataMap[gameId];
+             var moveVertMore = Math.abs(gameState.route.difX) < Math.abs(gameState.route.difY);
+             for(var idxHor = 0; idxHor < scanned.length; idxHor++) {
+                for(var idxVer = 0; idxVer < scanned.length; idxVer++) {
+                   if (idxHor < SCAN_DISTANCE && gameState.route.difX <= 0) {
+                       scanned[idxHor][idxVer] -= !moveVertMore? 2 : 1;
+                   } else if (idxHor > SCAN_DISTANCE && gameState.route.difX >= 0) {
+                       scanned[idxHor][idxVer] -= !moveVertMore? 2 : 1;
+                   }
+                   if (idxVer < SCAN_DISTANCE && gameState.route.difY <= 0) {
+                       scanned[idxHor][idxVer] -= moveVertMore? 2 : 1;
+                   } else if (idxVer > SCAN_DISTANCE && gameState.route.difY >= 0) {
+                       scanned[idxHor][idxVer] -= moveVertMore? 2 : 1;
+                   }
+
+                   var butcherRange = getClosestButcherRange(gameState, (gameState.self.x + idxHor - SCAN_DISTANCE),  (gameState.self.y + idxVer - SCAN_DISTANCE))
+                   if(butcherRange <= 4) {
+                        scanned[idxHor][idxVer] += 1;
+                   }
+                   if(butcherRange <= 3) {
+                        scanned[idxHor][idxVer] += 1;
+                   }
+                   if(butcherRange <= 2) {
+                        scanned[idxHor][idxVer] += 10;
+                   }
+                   if(butcherRange <= 1) {
+                        scanned[idxHor][idxVer] += 50;
+                   }
+                }
+             }
+
+             //last move adjustments
+             switch(gameState.lastMove) {
+                case UP:
+                    scanned[SCAN_DISTANCE][SCAN_DISTANCE+1] += 5
+                break;
+                case DOWN:
+                    scanned[SCAN_DISTANCE][SCAN_DISTANCE-1] += 5
+                break;
+                case RIGHT:
+                    scanned[SCAN_DISTANCE-1][SCAN_DISTANCE] += 5
+                break;
+                case LEFT:
+                    scanned[SCAN_DISTANCE+1][SCAN_DISTANCE] += 5
+                break
+             }
+        }
+
+        function getClosestButcherRange(gameState, fromX, fromY) {
+             var shortestRange = 99;
+             $.each(gameState.butchers, function(index, butcher) {
+                var range = Math.abs(fromX - butcher.x) + Math.abs(fromY - butcher.y);
+                if(shortestRange > range) {
+                    shortestRange = range;
+                }
+             });
+            return shortestRange;
+        }
+
+        function identifyPlayers(gameId, players) {
+            var gameState = gameDataMap[gameId];
+            gameState.allies.length = 0;
+            gameState.butchers.length = 0;
+            $.each(players, function(index, player) {
+                if (player.type == "PINGUIN" && !player.dead) {
+                   if(player.id == playerId) {
+                        gameState.self = player;
+                   } else {
+                        gameState.allies.push(player);
+                   }
+                } else if (player.type == "ZEELEEUW") {
+                    gameState.butchers.push(player);
+                }
+            });
+        }
+
+        function isSafe(tile) {
+            return tile && tile.type != "IJS";
+        }
+
+        function canMove(tile) {
+            return tile && tile.type != "ROTS";
+        }
+
+        function getTile(board, x, y) {
+            return board.tiles[x*board.rows + y];
+        }
+
+        function getMoveDirection(gameId, scannedArea) {
+            var gameState = gameDataMap[gameId];
+            var dir;
+            var rightvalue  = scannedArea[SCAN_DISTANCE + 1][SCAN_DISTANCE];
+            var leftvalue   = scannedArea[SCAN_DISTANCE - 1][SCAN_DISTANCE];
+            var upvalue     = scannedArea[SCAN_DISTANCE][SCAN_DISTANCE - 1];
+            var downvalue   = scannedArea[SCAN_DISTANCE][SCAN_DISTANCE + 1];
+            var value;
+
+            if(Math.abs(gameState.route.difX) > Math.abs(gameState.route.difY)) {
+                dir = RIGHT;
+                value = rightvalue;
+                if(leftvalue < value) {
+                    value = leftvalue;
+                    dir = LEFT;
+                }
+                if(upvalue < value) {
+                    value = upvalue;
+                    dir = UP;
+                }
+                if(downvalue < value) {
+                    value = downvalue;
+                    dir = DOWN;
+                }
+            } else {
+                dir = UP;
+                value = upvalue;
+                if(downvalue < value) {
+                    value = downvalue;
+                    dir = DOWN;
+                }
+                if(leftvalue < value) {
+                    value = leftvalue;
+                    dir = LEFT;
+                }
+                if(rightvalue < value) {
+                    value = rightvalue;
+                    dir = RIGHT;
+                }
+            }
+
+            gameState.lastMove = dir;
+            return dir;
+        }
+
+        function getClosestExit(gameState) {
+            closest = gameState.exits[0];
+            var range = calcRange(gameState.self, gameState.exits[0]);
+            for(var idx = 1; idx < gameState.exits.length; idx++) {
+                var newRange = calcRange(gameState.self, gameState.exits[idx]);
+                if(range > newRange) {
+                    range = newRange;
+                    closest = gameState.exits[idx];
+                }
+            }
+            return closest;
+        }
+
+        function calcRange(self, exit) {
+            var x = (self.x - exit.x);
+            var y = (self.y - exit.y);
+            return (x < 0 ? x*-1:x) + (y < 0 ? y*-1:y);
+        }
+
+        function getRoute(gameId) {
+            var gameState = gameDataMap[gameId];
+            var closestExit = getClosestExit(gameState);
+            gameState.route.difX = closestExit.x - gameState.self.x;
+            gameState.route.difY = closestExit.y - gameState.self.y;
+        }
+    </script>
+</head>
+
+<body>
+<div>
+    <div id="playerId">...</div>
+    <button id="playPinguinButton" onclick="newGame('PINGUIN')">New game as pinguin</button>
+    <button id="disconnectButton" onclick="disconnect()">Disconnect</button>
+    <button id="conectButton" onclick="connect()">Connect</button>
+    <div id="games">
+        <h1>Games</h1>
+    </div>
+    <div id="debug"/>
+</div>
+</body>
+</html>

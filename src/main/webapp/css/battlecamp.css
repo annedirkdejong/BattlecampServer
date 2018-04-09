@@ -1,0 +1,140 @@
+body {
+    background-color: #fff;
+    margin: 0;
+    font: 12px verdana,helvetica,arial,sans-serif;
+
+}
+
+div.tile {
+    float: left;
+    border-style:solid;
+    border-width:2px;
+    height: 20px;
+    width: 20px;
+}
+
+div.row {
+    clear:both;
+}
+
+div.ROTS {
+    background-color: darkgrey;
+    border-color:grey;
+}
+div.WATER {
+    /*background-color: lightblue;*/
+    background-image: url("../img/water.png");
+    background-repeat: no-repeat;
+    background-size: 100%;
+    border-color:lightblue;
+}
+div.HUIS {
+    /*background-color: blue; */
+    background-image: url("../img/iglo.png");
+    border-color:aliceblue;
+    background-color: white;
+    background-repeat: no-repeat;
+    background-size: 100%;
+}
+div.IJS {
+    background-color: white;
+    border-color:aliceblue;
+}
+
+#game {
+    float: left;
+    margin-bottom: 10px;
+}
+#board {
+    position: relative;
+    //transform: perspective(1000px) rotateX(37deg) rotateY(-4deg) rotateZ(-20deg);
+}
+img {
+    //transform: perspective(0em) rotateX(23deg) rotateY(58deg) rotateZ(-3deg);
+}
+#players {
+    width: 100%;
+    float: left;
+    background: rgba(0,0,0,0.5);
+    position: absolute;
+    height: 70px;
+    bottom: -24px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.player {
+    float: left;
+    margin: 3px 1px 0 10px;
+    width: 80px;
+    overflow: visible;
+}
+
+.player img {
+    width: 45px;
+    height: 45px;
+    display: block;
+    margin: auto;
+}
+
+.player .tile {
+    height: 45px;
+    width: 100%;
+}
+
+.player div {
+    color: #fff;
+}
+
+#games {
+    float: left;
+    clear: both;
+}
+
+table,th,td {
+    border:1px solid black;
+    border-collapse:collapse;
+}
+
+#score {
+    clear:both;
+    float: left;
+}
+#debug {
+    float: right;
+    width: 60em;
+    overflow-x: scroll;
+    overflow-y: scroll;
+}
+#topbar {
+    width: 100%;
+    background: rgba(0,0,0,0.5);
+    height: 30px;
+}
+
+#topbar button {
+    float: left;
+    line-height: 20px;
+}
+
+#knoppen button {
+    display: block;
+}
+.beurten-title {
+    display: inline-block;
+    margin-left: 5px;
+    line-height: 28px;
+    color: #fff;
+}
+.beurten {
+    display: inline-block;
+    color: #fff;
+    margin-left: 20px;
+}
+.mute-knop {
+    display: inline-block;
+    margin-left: 5px;
+    line-height: 28px;
+    color: #fff;
+    float: left;
+}

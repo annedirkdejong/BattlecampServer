@@ -1,0 +1,305 @@
+<html>
+<head>
+<title>Mario</title>
+<link rel="stylesheet" type="text/css" href="css/battlecamp.css">
+<script src="js/jquery-2.1.1.js"></script>
+<script src="js/sockjs-0.3.4.min.js"></script>
+<script src="js/stomp.js"></script>
+<script>
+var playerId;
+var color = 'darkred';
+var stompClient = null;
+
+$(document).ready(function () {
+    //console.log('ready');
+    playerId = 'Mario_' + Math.floor((Math.random() * 1000));
+    $("#playerId").html(playerId);
+    connect();
+    $.getJSON("/games", function (data) {
+        $.each(data, function (index, game) {
+            addGame(game);
+        });
+    });
+});
+
+function connect() {
+    var socket = new SockJS('/updates');
+    //console.log('socket: ' + socket);
+    stompClient = Stomp.over(socket);
+    //console.log('stompClient: ' + stompClient);
+    stompClient.debug = function (str) {
+        //$("#debug").prepend($("<div>").html(str));
+    };
+    stompClient.connect({}, function (frame) {
+        //console.log('Connected: ' + frame);
+        stompClient.subscribe('/topic/updates', function (tile) {
+            ////console.log('update: ' + tile);
+            //action();
+        });
+        stompClient.subscribe('/topic/beurt', function (data) {
+            var beurt = JSON.parse(data.body);
+            if (beurt.player.id == playerId) {
+                action(beurt);
+            } else {
+                //console.log('niet mijn beurt: ' + playerId + ' en ' + beurt.playerId);
+            }
+        });
+        stompClient.subscribe('/topic/games', function (data) {
+            var game = JSON.parse(data.body);
+            addGame(game);
+            var playerIds = game.players.map(function (player) {
+                return player.id;
+            });
+            if(playerIds.indexOf(playerId) > -1) {
+                console.log(data);
+            } else {
+                resetGameData();
+                joinGame(game.id, 'PINGUIN');
+            }
+            // Stop game here
+        });
+    });
+}
+
+function disconnect() {
+    stompClient.disconnect();
+}
+
+function addGame(game) {
+    if (!$('#' + game.id).length) {
+        var gameDiv = $("<div>", {id: game.id}).html(game.id);
+        $("#games").append(gameDiv);
+        gameDiv.append($("<button>", { onclick: "joinGame('" + game.id + "', 'PINGUIN')"}).html('join als pinguin'));
+        gameDiv.append($("<button>", { onclick: "joinGame('" + game.id + "', 'ZEELEEUW')"}).html('join als knuppelaar'));
+    }
+}
+
+function joinGame(gameId, playerType) {
+    //console.log(' player ' + playerId + ' joining game');
+    $.post("/join", {gameId: gameId, playerColor: color, playerId: playerId, playerType: playerType});
+}
+
+function newGame(playerType) {
+    //console.log('starting new game player ' + playerId);
+    $.post("/new", {playerId: playerId, playerColor: color, playerType: playerType});
+}
+
+var MAX_BUTCHER_DIST = 3;
+var RANDOM_TURN_COUNT = 4;
+var RANDOM_TURN_COUNT_AFTER_EVADING = 7;
+
+var iglos, rows, cols, evading;
+var randomTurnsLeft = 0;
+var evasiveTurnsLeft = 0;
+
+function resetGameData() {
+    iglos = undefined;
+    randomTurnsLeft = 0;
+    evasiveTurnsLeft = 0;
+    evading = false;
+}
+
+function findClosestIglo(player, iglos) {
+    var lowestDist = 1000;
+    var closestIglo = iglos[0];
+
+    for (var i = 0; i < iglos.length; i++) {
+        var iglo = iglos[i];
+        var dist = calcDist(player, iglo);
+        if (dist < lowestDist) {
+            lowestDist = dist;
+            closestIglo = iglo;
+        }
+    }
+    return closestIglo;
+}
+
+function calcShortestDist(target, enemies) {
+    //console.log(target);
+    //console.log(enemies);
+    var shortestdist = 1000;
+    for (var i = 0; i < enemies.length; i++) {
+        var dist = calcDist(target, enemies[i].enemy);
+        if (dist < shortestdist)
+            shortestdist = dist;
+    }
+    return shortestdist;
+}
+
+
+function action(beurt) {
+    var dir;
+    if (beurt.player.id != playerId.toString())
+        return;
+    $.getJSON("/game", {id: beurt.gameId}, function (gameData) {
+        var tiles = gameData.board.tiles;
+        if (!iglos) {
+            iglos = findIglos(tiles);
+            rows = gameData.board.rows;
+            cols = gameData.board.columns;
+
+        }
+        //console.log(gameData);
+        //console.log(beurt);
+
+        var iglo = findClosestIglo(beurt.player, iglos);
+
+        var xdiff = iglo.x - beurt.player.x;
+        var ydiff = iglo.y - beurt.player.y;
+        var dir = '.';
+
+        var eastAvailable = isAvailable(tiles, beurt.player.x + 1, beurt.player.y);
+        var westAvailable = isAvailable(tiles, beurt.player.x - 1, beurt.player.y);
+        var northAvailable = isAvailable(tiles, beurt.player.x, beurt.player.y - 1);
+        var southAvailable = isAvailable(tiles, beurt.player.x, beurt.player.y + 1);
+
+        var enemies = findEnemiesWithDistance(beurt.player, tiles, MAX_BUTCHER_DIST);
+        if (enemies.length > 0) {
+            // Close enemies found, find best avoiding move;
+            var bestOption;
+            var bestDistance = 0;
+
+            if (eastAvailable) {
+                bestOption = 'E';
+                var dist = calcShortestDist({x: beurt.player.x + 1, y: beurt.player.y}, enemies);
+                if (dist > bestDistance) {
+                    bestDistance = dist;
+                    bestOption = 'E';
+                }
+            }
+            if (westAvailable) {
+                var dist = calcShortestDist({x: beurt.player.x - 1, y: beurt.player.y}, enemies);
+                if (dist > bestDistance) {
+                    bestDistance = dist;
+                    bestOption = 'W';
+                }
+            }
+            if (northAvailable) {
+                var dist = calcShortestDist({x: beurt.player.x, y: beurt.player.y - 1}, enemies);
+                if (dist > bestDistance) {
+                    bestDistance = dist;
+                    bestOption = 'N';
+                }
+            }
+            if (southAvailable) {
+                var dist = calcShortestDist({x: beurt.player.x, y: beurt.player.y + 1}, enemies);
+                if (dist > bestDistance) {
+                    bestDistance = dist;
+                    bestOption = 'S';
+                }
+            }
+            console.log("Evading butcher");
+            evading = true;
+            randomTurnsLeft = 0;
+            dir = bestOption;
+
+        } else {
+            // Go to target
+
+            if (xdiff > 0 && eastAvailable)
+                dir = 'E';
+            else if (xdiff < 0 && westAvailable)
+                dir = 'W';
+            else if (ydiff > 0 && southAvailable)
+                dir = 'S';
+            else if (ydiff < 0 && northAvailable)
+                dir = 'N';
+            if (dir == '.' && randomTurnsLeft == 0 || evading) {
+                evading = false;
+                randomTurnsLeft = evading ? RANDOM_TURN_COUNT_AFTER_EVADING : RANDOM_TURN_COUNT;
+            }
+            if (randomTurnsLeft > 0) {
+                randomTurnsLeft--;
+                console.log("LETS DO RANDOM");
+                var randoms = [];
+                if (northAvailable)
+                    randoms.push('N');
+                if (southAvailable)
+                    randoms.push('S');
+                if (westAvailable)
+                    randoms.push('W');
+                if (eastAvailable)
+                    randoms.push('E');
+                dir = randoms[Math.floor(Math.random() * randoms.length)];
+            } else {
+                console.log("Going to iglo");
+            }
+        }
+        console.log('going to ' + dir);
+        $.post("/action", {playerId: playerId, gameId: beurt.gameId, direction: dir });
+    });
+
+}
+
+function isAvailable(tiles, x, y) {
+
+    var index = (x * rows) + y;
+    var tile = tiles[index];
+    if (tile)
+        return !(tile.type == 'ROTS');
+
+    return false;
+
+
+}
+
+function findIglos(tiles) {
+    return findTilesWithType(tiles, 'HUIS');
+}
+
+function findEnemiesWithDistance(player, tiles, maxDist) {
+    var result = [];
+    var enemies = findTilesWithPlayerType(tiles, 'ZEELEEUW');
+    for (var i = 0; i < enemies.length; i++) {
+        var dist = calcDist(player, enemies[i]);
+        if (dist < maxDist)
+            result.push({ enemy: enemies[i], distance: dist });
+    }
+    return result;
+}
+
+function findTilesWithType(tiles, type) {
+    var result = [];
+    for (var i = 0; i < tiles.length; i++) {
+        tile = tiles[i];
+        if (tile.type == type) {
+            result.push(tile);
+        }
+    }
+    return result;
+}
+
+function findTilesWithPlayerType(tiles, type) {
+    var result = [];
+    for (var i = 0; i < tiles.length; i++) {
+        tile = tiles[i];
+        if (tile.player)
+            if (tile.player.type == type) {
+                result.push(tile);
+            }
+    }
+    return result;
+}
+
+function calcDist(obj1, obj2) {
+    return Math.sqrt(Math.pow(obj1.x - obj2.x, 2) + Math.pow(obj1.y - obj2.y, 2));
+}
+
+
+</script>
+</head>
+
+<body>
+<div>
+    <div id="playerId">...</div>
+    <button id="playPinguinButton" onclick="newGame('PINGUIN')">New game as pinguin</button>
+    <button id="playKnuppelaarButton" onclick="newGame('ZEELEEUW')">New game as knuppelaar</button>
+    <button id="disconnectButton" onclick="disconnect()">Disconnect</button>
+    <button id="conectButton" onclick="connect()">Connect</button>
+    <div id="games">
+        <h1>Games</h1>
+    </div>
+    <div id="debug"/>
+</div>
+</body>
+</html>

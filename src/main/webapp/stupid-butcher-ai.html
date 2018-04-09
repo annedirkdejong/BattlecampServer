@@ -1,0 +1,328 @@
+<html>
+<head>
+    <title>AHHHH FRESH MEAT</title>
+    <link rel="stylesheet" type="text/css" href="css/battlecamp.css">
+    <script src="js/jquery-2.1.1.js"></script>
+    <script src="js/sockjs-0.3.4.min.js"></script>
+    <script src="js/stomp.js"></script>
+    <script type="text/javascript">
+        var playerId;
+        var color = 'purple';
+        var stompClient = null;
+
+        var SCAN_DISTANCE = 3;
+        var TOTAL_SCANNED_DISTANCE = (2*SCAN_DISTANCE + 1);
+        var UP      = "N";
+        var RIGHT   = "E";
+        var DOWN    = "S";
+        var LEFT    = "W";
+
+        var gameDataMap = {}
+
+        $(document).ready(function() {
+            //console.log('ready');
+            playerId = 'butcher_' + Math.floor((Math.random() * 1000));
+            $("#playerId").html(playerId);
+            connect();
+            $.getJSON( "/games", function( data ) {
+              $.each( data, function(index,  game) {
+                addGame(game);
+              });
+            });
+        });
+
+        function connect() {
+            var socket = new SockJS('/updates');
+            //console.log('socket: ' + socket);
+            stompClient = Stomp.over(socket);
+            //console.log('stompClient: ' + stompClient);
+            stompClient.connect({}, function(frame) {
+                //console.log('Connected: ' + frame);
+                stompClient.subscribe('/topic/updates', function(tile){
+                    ////console.log('update: ' + tile);
+                    //action();
+                });
+                stompClient.subscribe('/topic/beurt', function(data){
+                    var beurt = JSON.parse(data.body);
+                    if (beurt.player.id == playerId) {
+                        action(beurt);
+                    } else {
+                        //console.log('niet mijn beurt: ' + playerId + ' en ' + beurt.playerId);
+                    }
+                });
+                stompClient.subscribe('/topic/games', function(data){
+                    var game = JSON.parse(data.body);
+                    addGame(game);
+                    var playerIds = game.players.map(function(player){
+                        return player.id;
+                    });
+                    if (!(playerIds.indexOf(playerId) > -1)) {
+                        joinGame(game.id, 'ZEELEEUW');
+                    }
+                });
+            });
+        }
+
+        function disconnect() {
+            stompClient.disconnect();
+        }
+
+        function addGame(game) {
+            if (!$('#' + game.id).length) {
+                 var gameDiv = $("<div>", {id: game.id}).html(game.id);
+                 $( "#games" ).append(gameDiv);
+                 gameDiv.append($("<button>", { onclick:"joinGame('" + game.id + "', 'ZEELEEUW')"} ).html('Send in the BUTCHER'));
+            }
+        }
+
+        function joinGame(gameId, playerType) {
+            //console.log(' player ' + playerId + ' joining game');
+            $.post("/join", {gameId:gameId, playerId:playerId, playerColor: color, playerType: playerType});
+        }
+
+        function newGame(playerType) {
+            //console.log('starting new game player ' + playerId);
+            $.post("/new", {playerId:playerId, playerColor: color, playerType: playerType});
+        }
+
+        function action(beurt) {
+            var gameId = beurt.gameId;
+            $.getJSON( "/game", {id: gameId}, function( gameData ) {
+                var gameState = gameDataMap[gameId];
+                if (!gameState) {
+                    gameState = initGameState(gameId);
+                    identifyExits(gameId, gameData.board);
+                }
+                identifyPlayers(gameId, gameData.players);
+
+                var scannedArea = [];
+                for (var idxHor = -SCAN_DISTANCE; idxHor <= SCAN_DISTANCE; idxHor++) {
+                    scannedArea[idxHor + SCAN_DISTANCE] = [];
+                    for (var idxVer = -SCAN_DISTANCE; idxVer <= SCAN_DISTANCE; idxVer++) {
+                        var value = 0;
+                        var x = gameState.self.x + idxHor;
+                        var y = gameState.self.y + idxVer;
+                        if (x < 0 || x > gameData.board.columns) {
+                            value = 99;
+                        } else if (y < 0 || y > gameData.board.rows) {
+                            value = 99;
+                        } else {
+                            var tile = getTile(gameData.board, x, y);
+                            switch (tile.type) {
+                                case 'WATER':
+                                    value = 99;
+                                    break;
+                                case 'IJS':
+                                    if (tile.player && tile.player.type == 'ZEELEEUW' ) {
+                                        value = 50;
+                                    } else {
+                                        value = 0;
+                                    }
+                                    break;
+                                case 'HUIS':
+                                    value = 99;
+                                    break;
+                                case 'ROTS':
+                                    value = 99;
+                                break;
+                            }
+
+                        }
+                        scannedArea[idxHor + SCAN_DISTANCE][idxVer + SCAN_DISTANCE] = value;
+                    }
+                }
+
+                applyPathAdjustments(gameId, scannedArea);
+
+                var dir = getMoveDirection(gameId, scannedArea);
+                $.post("/action", {playerId: playerId, gameId: beurt.gameId, direction: dir });
+            });
+        }
+
+        function initGameState(gameId) {
+            var gameState = {};
+
+            gameState.lastMove = "";
+
+            gameState.self;
+            gameState.closest;
+            gameState.route = {};
+            gameState.meats = [];
+            gameState.butchers = [];
+            gameState.exits = [];
+
+            gameDataMap[gameId] = gameState;
+
+            return gameState;
+        }
+
+        function identifyExits(gameId, board) {
+            var gameState = gameDataMap[gameId];
+            $.each(board.tiles, function(index, tile) {
+                if(tile.type == "HUIS") {
+                    gameState.exits.push(tile);
+                }
+            })
+        }
+
+        function applyPathAdjustments(gameId, scanned) {
+             //apply trajectory adjustments
+             var gameState = gameDataMap[gameId];
+
+             for(var idxHor = 0; idxHor < scanned.length; idxHor++) {
+                for(var idxVer = 0; idxVer < scanned.length; idxVer++) {
+                    var up = 0;
+                    var down = 0;
+                    var left = 0;
+                    var right = 0;
+                    $.each(gameState.meats, function(index, meat) {
+                        if((meat.x - gameState.self.x) <= 0 ) left+=1;
+                        if((meat.x - gameState.self.x) >= 0 ) right+=1;
+                        if((meat.y - gameState.self.y) <= 0 ) up+=1;
+                        if((meat.y - gameState.self.y) >= 0 ) down+=1;
+                        var meatRange = getMeatRange(meat, (gameState.self.x + idxHor - SCAN_DISTANCE),  (gameState.self.y + idxVer - SCAN_DISTANCE))
+                        if(meatRange <= 20) {
+                            if((meat.x - gameState.self.x) <= 0 ) left+=1;
+                            if((meat.x - gameState.self.x) >= 0 ) right+=1;
+                            if((meat.y - gameState.self.y) <= 0 ) up+=1;
+                            if((meat.y - gameState.self.y) >= 0 ) down+=1;
+                        }
+                        if(meatRange <= 10) {
+                            if((meat.x - gameState.self.x) <= 0 ) left+=2;
+                            if((meat.x - gameState.self.x) >= 0 ) right+=2;
+                            if((meat.y - gameState.self.y) <= 0 ) up+=2;
+                            if((meat.y - gameState.self.y) >= 0 ) down+=2;
+                        }
+                        if(meatRange <= 5) {
+                            if((meat.x - gameState.self.x) <= 0 ) left+=2;
+                            if((meat.x - gameState.self.x) >= 0 ) right+=2;
+                            if((meat.y - gameState.self.y) <= 0 ) up+=2;
+                            if((meat.y - gameState.self.y) >= 0 ) down+=2;
+                        }
+                        if(meatRange <= 3) {
+                            if((meat.x - gameState.self.x) <= 0 ) left+=2;
+                            if((meat.x - gameState.self.x) >= 0 ) right+=2;
+                            if((meat.y - gameState.self.y) <= 0 ) up+=2;
+                            if((meat.y - gameState.self.y) >= 0 ) down+=2;
+                        }
+                        if(meatRange <= 1) {
+                            if((meat.x - gameState.self.x) <= 0 ) left+=20;
+                            if((meat.x - gameState.self.x) >= 0 ) right+=20;
+                            if((meat.y - gameState.self.y) <= 0 ) up+=20;
+                            if((meat.y - gameState.self.y) >= 0 ) down+=20;
+                        }
+                    });
+                    $.each(gameState.exits, function(index, exit) {
+                        var value = gameState.meats.length;
+                        if((exit.x - gameState.self.x) < 0 ) left+=value;
+                        if((exit.x - gameState.self.x) > 0 ) right+=value;
+                        if((exit.y - gameState.self.y) < 0 ) up+=value;
+                        if((exit.y - gameState.self.y) > 0 ) down+=value;
+                    });
+
+                    if (idxHor < SCAN_DISTANCE) {
+                        scanned[idxHor][idxVer] -=  left;
+                    } else if (idxHor > SCAN_DISTANCE) {
+                        scanned[idxHor][idxVer] -= right;
+                    }
+                    if (idxVer < SCAN_DISTANCE) {
+                        scanned[idxHor][idxVer] -= up;
+                    } else if (idxVer > SCAN_DISTANCE) {
+                        scanned[idxHor][idxVer] -= down;
+                    }
+                }
+             }
+
+             //last move adjustments
+             switch(gameState.lastMove) {
+                case UP:
+                    scanned[SCAN_DISTANCE][SCAN_DISTANCE+1] += 5
+                break;
+                case DOWN:
+                    scanned[SCAN_DISTANCE][SCAN_DISTANCE-1] += 5
+                break;
+                case RIGHT:
+                    scanned[SCAN_DISTANCE-1][SCAN_DISTANCE] += 5
+                break;
+                case LEFT:
+                    scanned[SCAN_DISTANCE+1][SCAN_DISTANCE] += 5
+                break
+             }
+        }
+
+        function getMeatRange(meat, fromX, fromY) {
+            return Math.abs(fromX - meat.x) + Math.abs(fromY - meat.y);
+        }
+
+        function identifyPlayers(gameId, players) {
+            var gameState = gameDataMap[gameId];
+            gameState.meats.length = 0;
+            gameState.butchers.length = 0;
+            $.each(players, function(index, player) {
+                if (player.type == "PINGUIN" && !player.dead) {
+                    gameState.meats.push(player);
+                } else if (player.type == "ZEELEEUW") {
+                    if(player.id == playerId) {
+                        gameState.self = player;
+                    } else {
+                        gameState.butchers.push(player);
+                    }
+                }
+            });
+        }
+
+        function isSafe(tile) {
+            return tile && tile.type != "IJS";
+        }
+
+        function canMove(tile) {
+            return tile && tile.type != "ROTS";
+        }
+
+        function getTile(board, x, y) {
+            return board.tiles[x*board.rows + y];
+        }
+
+        function getMoveDirection(gameId, scannedArea) {
+            var gameState = gameDataMap[gameId];
+            var dir;
+            var rightvalue  = scannedArea[SCAN_DISTANCE + 1][SCAN_DISTANCE];
+            var leftvalue   = scannedArea[SCAN_DISTANCE - 1][SCAN_DISTANCE];
+            var upvalue     = scannedArea[SCAN_DISTANCE][SCAN_DISTANCE - 1];
+            var downvalue   = scannedArea[SCAN_DISTANCE][SCAN_DISTANCE + 1];
+            var value;
+
+            dir = UP;
+            value = upvalue;
+            if(downvalue < value) {
+                value = downvalue;
+                dir = DOWN;
+            }
+            if(leftvalue < value) {
+                value = leftvalue;
+                dir = LEFT;
+            }
+            if(rightvalue < value) {
+                value = rightvalue;
+                dir = RIGHT;
+            }
+
+            gameState.lastMove = dir;
+            return dir;
+        }
+    </script>
+</head>
+
+<body>
+<div>
+    <div id="playerId">...</div>
+    <button id="playKnuppelaarButton" onclick="newGame('ZEELEEUW')">New game as the Butcher</button>
+    <button id="disconnectButton" onclick="disconnect()">Disconnect</button>
+    <button id="conectButton" onclick="connect()">Connect</button>
+    <div id="games">
+        <h1>Games</h1>
+    </div>
+    <div id="debug"/>
+</div>
+</body>
+</html>

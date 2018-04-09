@@ -1,0 +1,227 @@
+<html>
+<head>
+    <title>Viewer</title>
+    <link rel="stylesheet" type="text/css" href="css/battlecamp.css">
+    <script src="js/jquery-2.1.1.js"></script>
+    <script src="js/sockjs-0.3.4.min.js"></script>
+    <script src="js/stomp.js"></script>
+    <script>
+    var stompClient = null;
+
+    $(document).ready(function () {
+        connect();
+
+        $.getJSON("/games", function (data) {
+            $.each(data, function (index, game) {
+                addGame(game);
+            });
+        });
+    });
+
+    function addGame(game) {
+        var rowId = 'game_row_' + game.id;
+        if (!$('#' + rowId).length) {
+            var row = $("<tr>", {id: rowId});
+            row.click(function(){
+                displayGame(game.id);
+            });
+            $( "#games > tbody" ).append(row);
+        }
+
+        var row = $('#' + rowId);
+        $('#' + rowId + " > td" ).remove();
+        var timestamp = game.creation.substr(11,8);
+        row.append($("<td>").html('' + timestamp));
+        if (game.started) {
+            row.append($("<td>").html('Started'));
+        }
+        else {
+            row.append($("<td>").html('Stopped'));
+        }
+        
+        var players = game.players.map(function(player){
+                        return player.id;
+                        }).join(",");
+        row.append($("<td>").html(players));
+
+    }
+
+    function displayGame(gameId) {
+        $.getJSON( "/game", {id: gameId}, function( game ) {
+            $('#knoppen').empty();
+            if (!game.started) {
+                $('#knoppen').append($("<button>", {onclick: "startGame('" + game.id + "')"}).html("Start"));
+            }
+            if (!game.stopped) {
+                $('#knoppen').append($("<button>", {onclick: "stopGame('" + game.id + "')"}).html("Stop"));
+            }
+            $('#knoppen').append($("<div>", {id: "beurten_" + game.id, class: "beurten"}).html('0'));
+            $('#knoppen').append($("<div>", {class: "beurten-title"}).html(" beurten"));
+            $("#board > div").remove();
+            $("#board").html('<div id="players"></div>');
+            $.each(game.players, function (index, player) {
+                displayPlayer(player);
+            });
+           
+            $.each(game.board.tiles, function (index, tile) {
+                displayTile(tile);
+            });
+        });
+    }
+
+    function displayTile(tile) {
+        var rowId = "row" + tile.y;
+        var idSelect = "#" + rowId;
+
+        if (!$(idSelect).length) {
+            row = $("<div>", {class: "row", id: rowId});
+            $( '#board' ).append(row);
+        }
+
+        var tileId = "div_" + tile.x + "_" + tile.y;
+
+        if (!$("#"+tileId).length) {
+            var div = $("<div>", {id: tileId});
+            $(idSelect).append(div);
+        }
+        var div = $("#"+tileId);
+        div.html('');
+        div.removeClass();
+        div.css({'border-width': '', 'border-style': '', 'border-color': '','background-color': ''});
+        div.addClass('tile');
+
+        div.addClass(tile.type);
+
+        if (tile.player) {
+            div.css({'background-color': tile.player.color, 'background-image':'none'});
+            if (tile.player.dead) {
+                div.append('<img src="/img/dead.jpg" width="100%" height="100%"/>')
+            } else {
+                if (tile.player.type == 'PINGUIN') {
+                    div.append('<img src="/img/pingu.png" width="100%" height="100%"/>')
+                }
+                if (tile.player.type == 'ZEELEEUW') {
+                    div.append('<img src="/img/zeeleeuw.png" width="100%" height="100%"/>')
+                }
+            }
+            $('#player_tile_'+tile.player.id).remove();
+            var player_tile = div.clone();
+            player_tile.attr('id','player_tile_'+tile.player.id);
+            $('#player_'+tile.player.id).prepend(player_tile);
+        }else if (div.attr('class') == 'tile WATER'){
+        	div.css({'background-image':''});
+        }
+    }
+
+    function displayBeurt(beurt) {
+        //$("#beurt").html(beurt.player.id);
+        var beurten = $('#beurten_' + beurt.gameId);
+        var aantalBeurten = parseInt(beurten.text());
+        aantalBeurten = aantalBeurten + 1;
+        beurten.html('' + aantalBeurten);
+    }
+
+    function displayPlayer(player) {
+        var playerId = 'player_'+player.id;
+        if (!$('#'+playerId).length) {
+            var div = $("<div>", {id: playerId, class:'player'});
+            var playerInfo = $("<div>", {id: 'player_info_'+ playerId, float:'left'});
+            div.append(playerInfo);
+            $( "#players" ).append(div);
+        }
+        var playerDiv = $('#'+playerId);
+        $('#player_info_'+ playerId).html(player.id + ':' + player.points);
+    }
+
+    function connect() {
+        var socket = new SockJS('/updates');
+        //console.log('socket: ' + socket);
+        stompClient = Stomp.over(socket);
+        //console.log('stompClient: ' + stompClient);
+        stompClient.debug = function(str) {
+            //$("#debug").prepend($("<div>").html(str));
+        };
+        stompClient.connect({}, function(frame) {
+            //console.log('Connected: ' + frame);
+            stompClient.subscribe('/topic/updates', function(data){
+                var tile = JSON.parse(data.body);
+                displayTile(tile);
+                if (tile.player) {
+                    if (tile.player.dead && $('#mute').prop("checked") == false ) {
+                        new Audio('sound/tillie.mp3').play();
+                    }
+                    if (tile.player.winner && $('#mute').prop("checked") == false) {
+                        new Audio('sound/applause.mp3').play();
+                        $('#player_'+tile.player.id).append("!!!!!");
+                    }
+                }
+            });
+            stompClient.subscribe('/topic/beurt', function(data){
+                displayBeurt(JSON.parse(data.body));
+            });
+            stompClient.subscribe('/topic/games', function(data){
+                var game = JSON.parse(data.body);
+                addGame(game);
+                if (game.stopped) {
+                    newGame();
+                }
+                if (!game.started) {
+                    setTimeout(function (){startGame(game.id)},5000);
+                    displayGame(game.id)
+                }
+            });
+        });
+    }
+    function disconnect() {
+        stompClient.disconnect();
+    }
+
+    function newGame() {
+        $.post("/newEmptyGame");
+    }
+
+    function startGame(gameId) {
+        //console.log('starting game');
+        $.post("/start", {gameId:gameId});
+    }
+    function stopGame(gameId) {
+        //console.log('stopping game');
+        $.post("/stop", {gameId:gameId});
+    }
+    function killGame() {
+        //console.log('stopping game');
+        $.post("/stopCurrent");
+    }
+    </script>
+</head>
+
+<body>
+    <div id="topbar">
+        <button onclick=newGame()>New game</button>
+        <button onclick=killGame()>Stop current game</button>
+        <div class="mute-knop">
+        <input type="checkbox" id ="mute" />Mute
+        </div>
+        <div id="knoppen"></div>
+    </div>
+<div id="game">
+
+    <div id="board">
+        <div id="players"></div>
+    </div>
+    
+       
+</div>
+<table id="games">
+    <thead>
+        <tr>
+            <th>Timestamp</th>
+            <th>Status</th>
+            <th>Players</th>
+        </tr>
+    </thead>
+    <tbody>
+    </tbody>
+</table>
+</body>
+</html>
