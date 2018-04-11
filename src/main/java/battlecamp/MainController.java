@@ -48,6 +48,7 @@ public class MainController implements SchedulingConfigurer {
 	private static Map<String, Game> games = new HashMap<String, Game>();
 	private Game currentGame;
 	private Object lock = new Object();
+	private Board myBoard = null;
 
 	public static void main(String[] args) throws Exception {
 		ConfigurableApplicationContext applicationContext = SpringApplication
@@ -122,9 +123,10 @@ public class MainController implements SchedulingConfigurer {
 	public String newEmptyGame() {
 		synchronized (lock) {
 			if (currentGame == null || currentGame.isStopped()) {
-
-				Board board = Board.random(20, 20, broadcaster);
-				Game game = new Game(board, broadcaster);
+				if(this.myBoard == null)
+					myBoard = Board.random(20, 20, broadcaster);
+				myBoard.resetBoard();
+				Game game = new Game(myBoard, broadcaster);
 
 				games.put(game.getId(), game);
 				currentGame = game;
@@ -147,8 +149,10 @@ public class MainController implements SchedulingConfigurer {
 			@RequestParam Player.Type playerType) {
 		synchronized (lock) {
 			if (currentGame == null || currentGame.isStopped()) {
-				Board board = Board.random(20, 20, broadcaster);
-				Game game = new Game(board, broadcaster);
+				if(this.myBoard == null)
+					myBoard = Board.random(20, 20, broadcaster);
+				myBoard.resetBoard();
+				Game game = new Game(myBoard, broadcaster);
 				game.addPlayer(Player.newPlayer(playerId, playerType,
 						playerColor, broadcaster));
 
@@ -214,6 +218,8 @@ public class MainController implements SchedulingConfigurer {
 				+ " bestaat niet");
 //		Game game = games.get(gameId);
 		Game game = currentGame;
+		if(game.getPlayers().isEmpty())
+			return;
 		if (!game.isStarted()) {
 			game.start();
 			if (!game.getPlayers().isEmpty()) {

@@ -40,7 +40,6 @@ public class Game {
     public  void start() {
         this.started = true;
         broadcaster.broadcast("games", this);
-        
     }
 
     public  void stop() {
@@ -95,7 +94,7 @@ public class Game {
                 .findFirst();
         randomWaterTile.ifPresent(tile -> {
             tile.setType(Tile.Type.IJS);
-            broadcaster.broadcast("updates", tile);
+            //broadcaster.broadcast("updates", tile);
         });
 
         List<Player> livingPlayers = players.stream().filter(player -> !player.isDead()).collect(Collectors.toList());
@@ -149,7 +148,7 @@ public class Game {
 			} else if (!hasLivingPinguins()) {
 				stop();
 			} else {
-				TimeUnit.MILLISECONDS.sleep(20);
+				TimeUnit.MILLISECONDS.sleep(5);
 				volgendeBeurt();
 			}
 		}

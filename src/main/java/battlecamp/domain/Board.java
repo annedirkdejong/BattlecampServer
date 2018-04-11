@@ -28,9 +28,16 @@ public class Board {
         return board;
     }
 
+    public void resetBoard(){
+        this.tiles.forEach(tile->{
+            tile.removePlayer();
+        });
+    }
+
     public static Board random(int columns, int rows,Broadcaster broadcaster) {
         Board board = new Board(broadcaster);
         board.rows = rows;
+        Random random = new Random(5662);
         board.columns = columns;
         for (int x=0; x<columns; x++) {
             for (int y=0; y < rows; y++) {
@@ -38,11 +45,11 @@ public class Board {
                 int maxIceWidth = 26;
                 if (x > (columns/2 - maxIceWidth/2) && x < (columns/2 + maxIceWidth/2)) {
                     int midden = Math.abs((columns/2) -x);
-                    if (new Random().nextInt(maxIceWidth) > midden-1) {
+                    if (random.nextInt(maxIceWidth) > midden-1) {
                         type = Tile.Type.IJS;
                     }
                 }
-                if (new Random().nextInt(10) > 7) {
+                if (random.nextInt(10) > 7) {
                     type = Tile.Type.ROTS;
                 }
 
@@ -87,7 +94,7 @@ public class Board {
         }
 
         if (nextTile.getType() == Tile.Type.ROTS) {
-            System.out.println("next position: x:"+ nextTile.getX() + ",y:" + nextTile.getY() + " is ee rots" );
+            System.out.println("next position: x:"+ nextTile.getX() + ",y:" + nextTile.getY() + " is een rots" );
             return;
         }
         if (nextTile.getPlayer() != null) {
@@ -108,7 +115,6 @@ public class Board {
 
         Tile oldLocation = player.getLocation();
         player.getLocation().removePlayer();
-        broadcaster.broadcast("updates",oldLocation );
       
         nextTile.setPlayer(player);
         broadcaster.broadcast("updates",nextTile );        
