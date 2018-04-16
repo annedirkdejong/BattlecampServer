@@ -86,7 +86,7 @@ public class MainController implements SchedulingConfigurer {
 		taskRegistrar.setTaskScheduler(taskScheduler());
 		taskRegistrar.addFixedRateTask(new Runnable() {
 			public void run() {
-				if (currentGame!=null && currentGame.getMoves()>currentGame.getPlayers().size()*500){
+				if (currentGame!=null && currentGame.getMoves()>currentGame.getPlayers().size()*50000){
 					currentGame.getPlayers().stream().forEach(p -> p.die());
 					currentGame.stop();
 				}
