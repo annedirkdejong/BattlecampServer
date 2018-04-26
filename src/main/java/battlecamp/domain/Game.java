@@ -118,7 +118,7 @@ public class Game {
             nextPlayer = livingPlayers.get(0);
         }
         nextPlayer.setHeeftBeurt(true);
-        beurt = new Beurt(this.id, nextPlayer);
+        beurt = new Beurt(this.id, nextPlayer, this.getPlayers());
 		broadcaster.broadcast("beurt", beurt);
 //        this.messagingTemplate.convertAndSend("/topic/beurt", new Beurt(this.id, nextPlayer));
 //        int oldMoves = this.moves;
@@ -142,13 +142,13 @@ public class Game {
 			}
 			board.movePlayer(player, direction);
 			this.moves++;
-			if (player.getLocation().getType() == Tile.Type.HUIS) {
+			if (player.getType() == Player.Type.PINGUIN && player.getLocation().getType() == Tile.Type.HUIS) {
 				player.win();
 				stop();
 			} else if (!hasLivingPinguins()) {
 				stop();
 			} else {
-				TimeUnit.MILLISECONDS.sleep(5);
+				TimeUnit.MILLISECONDS.sleep(10);
 				volgendeBeurt();
 			}
 		}
@@ -159,7 +159,6 @@ public class Game {
     }
 	public  void expireBeurt() {
 		synchronized (lock) {
-			System.out.println("die MF!!");
 			beurt.getPlayer().die();
 			try {
 				volgendeBeurt();

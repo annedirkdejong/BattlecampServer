@@ -37,7 +37,7 @@ public class Board {
     public static Board random(int columns, int rows,Broadcaster broadcaster) {
         Board board = new Board(broadcaster);
         board.rows = rows;
-        Random random = new Random(5662);
+        Random random = new Random();//5662
         board.columns = columns;
         for (int x=0; x<columns; x++) {
             for (int y=0; y < rows; y++) {
@@ -89,12 +89,14 @@ public class Board {
 
         Tile nextTile = findTile(nextX, nextY);
         if (nextTile == null) {
-            System.out.println("next position: x:"+ nextX + ",y:" + nextY + " is over de rand" );
+            //System.out.println("next position: x:"+ nextX + ",y:" + nextY + " is over de rand" );
+            broadcaster.broadcast("updates",player.getLocation() );
             return;
         }
 
         if (nextTile.getType() == Tile.Type.ROTS) {
-            System.out.println("next position: x:"+ nextTile.getX() + ",y:" + nextTile.getY() + " is een rots" );
+            //System.out.println("next position: x:"+ nextTile.getX() + ",y:" + nextTile.getY() + " is een rots" );
+            broadcaster.broadcast("updates",player.getLocation() );
             return;
         }
         if (nextTile.getPlayer() != null) {
@@ -108,14 +110,15 @@ public class Board {
             System.out.println("next position: x:"+ nextTile.getX() + ",y:" + nextTile.getY() + " is a player" );
             return;
         }
-        if (player.getType() == Player.Type.ZEELEEUW && nextTile.getType() == Tile.Type.WATER) {
+        if (player.getType() == Player.Type.ZEELEEUW && (nextTile.getType() == Tile.Type.WATER || nextTile.getType() == Tile.Type.HUIS)) {
             System.out.println("next position: x:"+ nextTile.getX() + ",y:" + nextTile.getY() + " is a water" );
             return;
         }
 
         Tile oldLocation = player.getLocation();
         player.getLocation().removePlayer();
-      
+        broadcaster.broadcast("updates",oldLocation );
+
         nextTile.setPlayer(player);
         broadcaster.broadcast("updates",nextTile );        
     }
@@ -155,6 +158,7 @@ public class Board {
         boolean added = false;
         while (!added) {
             int random = new Random().nextInt(tiles.size());
+            //int random.size() -1 ; = tiles
             Tile tile = tiles.get(random);
             if (!(tile.getType() == Tile.Type.ROTS) && tile.getPlayer() == null && (tile.getX()>(columns-5))) {
                 tile.setType(Tile.Type.HUIS);

@@ -49,6 +49,8 @@ public class MainController implements SchedulingConfigurer {
 	private Game currentGame;
 	private Object lock = new Object();
 	private Board myBoard = null;
+	private final int rows = 10;
+	private final int cols = 10;
 
 	public static void main(String[] args) throws Exception {
 		ConfigurableApplicationContext applicationContext = SpringApplication
@@ -86,7 +88,7 @@ public class MainController implements SchedulingConfigurer {
 		taskRegistrar.setTaskScheduler(taskScheduler());
 		taskRegistrar.addFixedRateTask(new Runnable() {
 			public void run() {
-				if (currentGame!=null && currentGame.getMoves()>currentGame.getPlayers().size()*50000){
+				if (currentGame!=null && currentGame.getMoves()>currentGame.getPlayers().size()*currentGame.getBoard().getColumns()*currentGame.getBoard().getRows()){
 					currentGame.getPlayers().stream().forEach(p -> p.die());
 					currentGame.stop();
 				}
@@ -123,10 +125,12 @@ public class MainController implements SchedulingConfigurer {
 	public String newEmptyGame() {
 		synchronized (lock) {
 			if (currentGame == null || currentGame.isStopped()) {
-				if(this.myBoard == null)
-					myBoard = Board.random(20, 20, broadcaster);
-				myBoard.resetBoard();
-				Game game = new Game(myBoard, broadcaster);
+				//if(this.myBoard == null)
+				//	myBoard = Board.random(10, 10, broadcaster);
+				//myBoard.resetBoard();
+				//Game game = new Game(myBoard, broadcaster);
+				Board board = Board.random(cols, rows, broadcaster);
+				Game game = new Game(board, broadcaster);
 
 				games.put(game.getId(), game);
 				currentGame = game;
@@ -149,10 +153,12 @@ public class MainController implements SchedulingConfigurer {
 			@RequestParam Player.Type playerType) {
 		synchronized (lock) {
 			if (currentGame == null || currentGame.isStopped()) {
-				if(this.myBoard == null)
-					myBoard = Board.random(20, 20, broadcaster);
-				myBoard.resetBoard();
-				Game game = new Game(myBoard, broadcaster);
+				//if(this.myBoard == null)
+				//	myBoard = Board.random(10, 10, broadcaster);
+				//myBoard.resetBoard();
+				//Game game = new Game(myBoard, broadcaster);
+				Board board = Board.random(cols, rows, broadcaster);
+				Game game = new Game(board, broadcaster);
 				game.addPlayer(Player.newPlayer(playerId, playerType,
 						playerColor, broadcaster));
 
